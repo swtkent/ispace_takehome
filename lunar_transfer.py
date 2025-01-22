@@ -2,6 +2,8 @@ import numpy as np
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 import lunar_transfer_utils as ltu
+from numpy.typing import NDArray
+from typing import Tuple
 
 MU_EARTH = 3.986e14  # (m^3/s^2)
 
@@ -50,6 +52,7 @@ def optimize_dv(a_initial: float, e_initial: float, M_start: float, mu: float,
 
     Returns
     optimal_dv: Optimal Delta-V (m/s)
+    separation_val: Separation from optimal DV (m)
     """
 
     def objective(dv):
@@ -60,19 +63,65 @@ def optimize_dv(a_initial: float, e_initial: float, M_start: float, mu: float,
                                                 M_start, mu)
         return abs(sep - target_separation)
 
-    result = minimize(objective, x0=init_guess)#, bounds=[(-bound, bound)])
+    result = minimize(objective, x0=init_guess, bounds=[(-bound, bound)])
+
+    if not result.success:
+        return np.nan, np.nan
+    
     optimal_dv = result.x[0]
     min_val_found = result.fun
+    separation_val = min_val_found + target_separation
+    return optimal_dv, separation_val
 
-    ta = ltu.true_anomaly_from_mean_anomaly(M_start, e_initial)
-    r_deploy = ltu.radius_at_true_anomaly(a_initial, e_initial, ta)
-    init_v = ltu.velocity_at_radius(a_initial, r_deploy, mu)
-    separation = separation_after_one_revolution(optimal_dv, a_initial, e_initial,
-                                                M_start, mu)
-    # to help with debugging
-    print(f"{M_start=:.3f} rads\t{optimal_dv=:.4f} m/s\t{separation=:.3f} m")
 
-    return optimal_dv
+def find_successful_separation_dvs(a: float, e: float, M_range: NDArray[np.float64], target_separation: float, init_guess: float, bound: float) -> NDArray[np.float64]:
+    """
+    Compute the minimum Delta-V to achieve the target separation after
+    one revolution for a series of mean anomalies.
+
+    Parameters
+    a: Semi-major axis of the initial orbit (m)
+    e: Eccentricity of initial orbit (unitless)
+    M_range: Range of mean anomalies (rads)
+    target_separation: Target separation distance (m)
+    init_guess: Initial value to assume for delta v
+    bound: upper value for positive/negative bounding of optimizer
+
+    Returns
+    dvs: Optimal Delta-V (m/s)
+    """
+    dvs = np.empty_like(M_range)
+    true_seps = np.empty_like(M_range)
+    for i, M in enumerate(M_range):
+        dvs[i], true_seps[i] = optimize_dv(a, e, M, ltu.MU_MOON, target_separation, init_guess, bound)
+    target_errs = abs(true_seps - target_separation)
+    return dvs, target_errs
+
+
+def plot_optimal_dvs(M_range: NDArray[np.float64], dvs: NDArray[np.float64]) -> None:
+    """
+    Plot the optimal DV's found for each mean anomaly tested and return the smallest DV found and where
+
+    Parameters
+    M_range: Mean anomaly range (rads)
+    dvs: Optimal Delta-V's (m/s)
+
+    Returns
+    None
+    """
+    # Find the index of the minimum absolute value
+    min_index = np.nanargmin(np.abs(dvs))
+    best_dv = dvs[min_index]
+    best_M = M_range[min_index]
+
+    plt.figure()
+    plt.plot(M_range, dvs, color='blue', marker='.', markersize=4)
+    plt.xlabel('Mean Anomaly (rads)')
+    plt.ylabel('Delta-V (m/s)')
+    plt.title('Optimal Delta-V for Targeted Separation')
+    plt.scatter(best_M, best_dv, label=f'Minimal DV={best_dv:.4f} m/s at M={best_M:.4f}', marker='*', color='red', s=50)
+    plt.grid()
+    plt.legend()
 
 
 def main():
@@ -88,13 +137,11 @@ def main():
     # Calculated initial orbit parameters
     a, e = ltu.orbit_shape_from_altitudes(perilune_alt, apolune_alt, ltu.MOON_RADIUS)
 
-    # Optimized Delta-V's at peri- and apo- apses
-    dv_perilune = optimize_dv(a, e, 0, ltu.MU_MOON, target_separation, init_guess,
-                              bound)  # Velocity at periapsis
-    dv_apolune = optimize_dv(a, e, np.pi, ltu.MU_MOON, target_separation,
-                             init_guess, bound)  # Velocity at apoapsis
-    print(f"Minimum Delta-V at Perilune: {dv_perilune:.3f} m/s")
-    print(f"Minimum Delta-V at Apolune: {dv_apolune:.3f} m/s")
+    # Optimized Delta-V's across orbit, that don't fail
+    M_range = np.linspace(0, 2*np.pi, 10000)
+    dvs, separation_errs = find_successful_separation_dvs(a, e, M_range, target_separation, init_guess, bound)
+    plot_optimal_dvs(M_range, dvs)
+    plt.show()
 
 
 if __name__ == "__main__":
