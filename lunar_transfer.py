@@ -3,6 +3,9 @@ from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 import lunar_transfer_utils as ltu
 
+MU_EARTH = 3.986e14  # (m^3/s^2)
+
+
 def separation_after_one_revolution(dv: float, a_initial: float,
                                     e_initial: float, M_start: float,
                                     mu: float) -> float:
@@ -51,29 +54,25 @@ def optimize_dv(a_initial: float, e_initial: float, M_start: float, mu: float,
 
     def objective(dv):
         # objective function to put into optimizing function to minimize DV
-        return abs(separation_after_one_revolution(dv, a_initial, e_initial,
-                                                   M_start, mu) -
-                   target_separation)
+        if isinstance(dv, np.ndarray) and dv.shape==(1,):
+            dv = dv[0]
+        sep = separation_after_one_revolution(dv, a_initial, e_initial,
+                                                M_start, mu)
+        return abs(sep - target_separation)
 
-    result = minimize(objective, x0=init_guess, bounds=[(-bound, bound)])
+    result = minimize(objective, x0=init_guess)#, bounds=[(-bound, bound)])
     optimal_dv = result.x[0]
+    min_val_found = result.fun
+
+    ta = ltu.true_anomaly_from_mean_anomaly(M_start, e_initial)
+    r_deploy = ltu.radius_at_true_anomaly(a_initial, e_initial, ta)
+    init_v = ltu.velocity_at_radius(a_initial, r_deploy, mu)
+    separation = separation_after_one_revolution(optimal_dv, a_initial, e_initial,
+                                                M_start, mu)
+    # to help with debugging
+    print(f"{M_start=:.3f} rads\t{optimal_dv=:.4f} m/s\t{separation=:.3f} m")
+
     return optimal_dv
-
-
-def plot_separation_dvs_needed(M_range, a, e, target_separation, init_guess, bound):
-    # solve for minimal DV for range of mean anomalies
-    dvs = np.empty_like(M_range)
-    for i,M in enumerate(M_range):
-        dvs[i] = optimize_dv(a, e, M, ltu.MU_MOON, target_separation,
-                             init_guess, bound)
-    
-    # plot the DV's vs M's
-    fig = plt.figure()
-    plt.plot(M_range, dvs)
-    plt.xlabel('Mean Anomaly (rads)')
-    plt.ylabel('Delta-V (m/s)')
-    plt.title(f'Delta-V Required for {target_separation/1e3:.3f}-km Separation After One Orbit Across Mean Anomalies')
-    plt.grid()
 
 
 def main():
@@ -83,8 +82,8 @@ def main():
     target_separation = 10e3  # m
 
     # values for guessing Delta V
-    init_guess = 40  # m
-    bound = 1e3  # m
+    init_guess = 0  # m/s
+    bound = 50  # m/s
 
     # Calculated initial orbit parameters
     a, e = ltu.orbit_shape_from_altitudes(perilune_alt, apolune_alt, ltu.MOON_RADIUS)
@@ -96,11 +95,6 @@ def main():
                              init_guess, bound)  # Velocity at apoapsis
     print(f"Minimum Delta-V at Perilune: {dv_perilune:.3f} m/s")
     print(f"Minimum Delta-V at Apolune: {dv_apolune:.3f} m/s")
-
-    # see how the Delta-V changes over the course of an orbit
-    M_range = np.linspace(0, 2*np.pi, 1000)
-    plot_separation_dvs_needed(M_range, a, e, target_separation, init_guess, bound)
-    plt.show()
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 # Assumed Constants
-MU_MOON = 4.9048695e12  # Gravitational parameter of Moon (m^3/s^2)
+MU_MOON = 4.90283e12  # Gravitational parameter of Moon (m^3/s^2)
 MOON_RADIUS = 1737.4e3  # Radius of Moon (m)
 
 
@@ -74,14 +74,14 @@ def period_from_sma(a: float, mu: float) -> float:
     return period
 
 
-def velocity_at_radius(r: float, a: float, mu: float) -> float:
+def velocity_at_radius(a: float, r: float, mu: float) -> float:
     """
     Compute orbital velocity at a distance r from the center for an orbit with
     semi-major axis a
 
     Parameters
-    r: Radius of satellite (m)
     a: Semi-major axis of the initial orbit (m)
+    r: Radius of satellite (m)
     mu: Standard gravitational parameter (SGP) (m^3/s^2)
 
     Returns
@@ -115,6 +115,28 @@ def eccentric_anomaly_from_mean_anomaly(M, e, tol=1e-8):
     return E
 
 
+def true_anomaly_from_eccentric_anomaly(E, e):
+    """
+    Calculate the true anomaly given the eccentric anomaly
+    
+    Parameters
+    E: Eccentric anomaly (rads)
+    e: Eccentricity (unitless)
+
+    Returns
+    true_anomaly: True anomaly (rads)
+    """
+    # true_anomaly = 2 * np.arctan2(
+    #     np.sqrt(1 + e) * np.sin(E / 2),
+    #     np.sqrt(1 - e) * np.cos(E / 2)
+    # )
+    true_anomaly = np.arctan2(
+        np.sin(E) * np.sqrt(1 - e**2),
+        np.cos(E) - e
+    )
+    return true_anomaly
+
+
 def true_anomaly_from_mean_anomaly(M, e):
     """
     Calculate the true anomaly given the mean anomaly.
@@ -127,10 +149,7 @@ def true_anomaly_from_mean_anomaly(M, e):
     true_anomaly: True anomaly (rads)
     """
     E = eccentric_anomaly_from_mean_anomaly(M, e)
-    true_anomaly = 2 * np.arctan2(
-        np.sqrt(1 + e) * np.sin(E / 2),
-        np.sqrt(1 - e) * np.cos(E / 2)
-    )
+    true_anomaly = true_anomaly_from_eccentric_anomaly(E, e)
     return true_anomaly
 
 
